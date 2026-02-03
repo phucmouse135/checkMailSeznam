@@ -11,6 +11,7 @@ COLUMNS = [
     "PHOI GOC",
     "PASS MAIL",
     "FOUND_DATA",
+    "LINK",
     "NOTE",
 ]
 _FILE_LOCK = threading.Lock()
@@ -41,21 +42,29 @@ class AutomationGUI(tk.Tk):
         self.after(200, self._process_updates)
         
     def _save_live_result(self, values, status, message):
-        """Ghi kết quả ngay lập tức vào file output.txt"""
+        """Ghi kết quả ngay lập tức vào file success.txt hoặc fail.txt"""
         try:
             # Tạo nội dung dòng log: MAIL | PASS | STATUS | MSG
-            # Tùy chỉnh các cột theo ý bạn dựa vào biến values
             mail = values[0]
             password = values[1]
-            # status và message là kết quả vừa chạy xong
             
             line_content = f"{mail}\t{password}\t{status}\t{message}"
             
+            # Xác định file để ghi dựa trên status
+            is_success = status == "success"
+            filename = "success.txt" if is_success else "fail.txt"
+            
             with _FILE_LOCK: # Khóa file để các luồng không ghi đè nhau
-                with open("output.txt", "a", encoding="utf-8") as f:
+                with open(filename, "a", encoding="utf-8") as f:
                     f.write(line_content + "\n")
                     f.flush()
                     os.fsync(f.fileno()) # Ép ghi xuống ổ cứng ngay
+                    
+                # Vẫn ghi vào output.txt như cũ để tương thích
+                with open("output.txt", "a", encoding="utf-8") as f:
+                    f.write(line_content + "\n")
+                    f.flush()
+                    os.fsync(f.fileno())
         except Exception as e:
             print(f"Lỗi ghi live output: {e}")
 
@@ -147,7 +156,12 @@ class AutomationGUI(tk.Tk):
         self.tree = ttk.Treeview(frame, columns=COLUMNS, show="headings")
         for col in COLUMNS:
             self.tree.heading(col, text=col)
-            width = 120 if col != "NOTE" else 180
+            if col in ["FOUND_DATA", "LINK"]:
+                width = 200
+            elif col == "NOTE":
+                width = 180
+            else:
+                width = 120
             self.tree.column(col, width=width, minwidth=80, anchor=tk.W)
         self.tree.tag_configure(
             "success", foreground="#1b7f1b", background="#e6f4ea"
@@ -263,8 +277,8 @@ class AutomationGUI(tk.Tk):
         sample_text = tk.Text(sample_frame, height=3, wrap=tk.NONE, relief="flat")
         sample_text.pack(fill=tk.X, padx=6, pady=6)
         sample_value = (
-            "PHOI GOC\tPASS MAIL\tFOUND_DATA\tNOTE\n"
-            "example@gmx.de\tpassword\t\tPending"
+            "PHOI GOC\tPASS MAIL\tFOUND_DATA\tLINK\tNOTE\n"
+            "example@gmx.de\tpassword\t\t\tPending"
         )
         sample_text.insert("1.0", sample_value)
         sample_text.configure(state="disabled")
@@ -518,9 +532,18 @@ class AutomationGUI(tk.Tk):
 
             if ok:
                 values[2] = result  # ghi found_data vào FOUND_DATA
-                values[3] = "success"  # ghi success vào NOTE
+                # Parse LINK from result
+                link = ""
+                if "|" in result:
+                    parts = result.split("|")
+                    for part in parts:
+                        if part.startswith("LINK="):
+                            link = part.split("=", 1)[1]
+                            break
+                values[3] = link  # ghi link vào LINK
+                values[4] = "success"  # ghi success vào NOTE
             else:
-                values[3] = "fail"
+                values[4] = "fail"
             
             print(f"{values[0]} : Updated FOUND_DATA: {values[2]}, NOTE: {values[3]}")
             

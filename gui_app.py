@@ -8,14 +8,15 @@ from main import Account, process_account
 
 
 COLUMNS = [
-    "UID add",
-    "MAIL LK IG",
     "USER",
-    "PASS IG",
+    "PASS_IG",
     "2FA",
-    "PHOI GOC",
-    "PASS MAIL",
-    "MAIL KHOI PHUC",
+    "PHÔI_GỐC",
+    "PASS_MAIL",
+    "Post",
+    "Followers",
+    "Following",
+    "COOKIE",
     "NOTE",
 ]
 _FILE_LOCK = threading.Lock()
@@ -46,22 +47,30 @@ class AutomationGUI(tk.Tk):
         self.after(200, self._process_updates)
         
     def _save_live_result(self, values, status, message):
-        """Ghi kết quả ngay lập tức vào file live_output.txt"""
+        """Ghi kết quả ngay lập tức vào file success.txt hoặc fail.txt"""
         try:
             # Tạo nội dung dòng log: UID | MAIL | PASS | STATUS | MSG
-            # Tùy chỉnh các cột theo ý bạn dựa vào biến values
             uid = values[0]
-            mail = values[5]
-            password = values[6]
-            # status và message là kết quả vừa chạy xong
+            mail = values[3]
+            password = values[4]
             
             line_content = f"{uid}\t{mail}\t{password}\t{status}\t{message}"
             
+            # Xác định file để ghi dựa trên status
+            is_success = status == "success"
+            filename = "success.txt" if is_success else "fail.txt"
+            
             with _FILE_LOCK: # Khóa file để các luồng không ghi đè nhau
-                with open("output.txt", "a", encoding="utf-8") as f:
+                with open(filename, "a", encoding="utf-8") as f:
                     f.write(line_content + "\n")
                     f.flush()
                     os.fsync(f.fileno()) # Ép ghi xuống ổ cứng ngay
+                    
+                # Vẫn ghi vào output.txt như cũ để tương thích
+                with open("output.txt", "a", encoding="utf-8") as f:
+                    f.write(line_content + "\n")
+                    f.flush()
+                    os.fsync(f.fileno())
         except Exception as e:
             print(f"Lỗi ghi live output: {e}")
 
@@ -113,7 +122,7 @@ class AutomationGUI(tk.Tk):
 
         ttk.Label(frame, text="Threads").grid(row=0, column=0, padx=5, pady=5)
         spin = ttk.Spinbox(
-            frame, from_=1, to=20, textvariable=self.threads_var, width=5
+            frame, from_=1, to=6, textvariable=self.threads_var, width=5
         )
         spin.grid(row=0, column=1, padx=5, pady=5)
 
@@ -250,9 +259,8 @@ class AutomationGUI(tk.Tk):
         sample_text = tk.Text(sample_frame, height=3, wrap=tk.NONE, relief="flat")
         sample_text.pack(fill=tk.X, padx=6, pady=6)
         sample_value = (
-            "UID add\tMAIL LK IG\tUSER\tPASS IG\t2FA\tPHOI GOC\tPASS MAIL\tMAIL KHOI PHUC\n"
-            "aufiei\taufiei@gmx.de\tzjsigjywkg\teaaqork1S\t\t"
-            "virtualcultural2@gmx.de\teaaqork1S\tvirtualcultural2@teml.net"
+            "USER\tPASS_IG\t2FA\tPHÔI_GỐC\tPASS_MAIL\tPost\tFollowers\tFollowing\tCOOKIE\tNOTE\n"
+            "user1\tpass1\t\temail1@example.com\tpassmail1\t100\t200\t300\tcookie_data_here\tPending"
         )
         sample_text.insert("1.0", sample_value)
         sample_text.configure(state="disabled")
@@ -401,8 +409,8 @@ class AutomationGUI(tk.Tk):
             note = values[-1]
             if self._is_success_note(note):
                 continue
-            has_login = len(values) >= 6 and values[5]
-            has_pass = len(values) >= 7 and values[6]
+            has_login = len(values) >= 4 and values[3]
+            has_pass = len(values) >= 5 and values[4]
             if not has_login or not has_pass:
                 values[-1] = "Error: missing mail login/pass"
                 self.tree.item(item, values=values)
@@ -430,8 +438,8 @@ class AutomationGUI(tk.Tk):
 
         worker_count = max(1, int(self.threads_var.get()))
         self.workers = []
-        for _ in range(worker_count):
-            thread = threading.Thread(target=self._worker, daemon=True)
+        for i in range(worker_count):
+            thread = threading.Thread(target=self._worker, args=(i, worker_count), daemon=True)
             thread.start()
             self.workers.append(thread)
 
@@ -441,6 +449,7 @@ class AutomationGUI(tk.Tk):
     def stop(self):
         if not self.running:
             return
+        self.running = False
         self.stop_event.set()
 
         drained = 0
@@ -460,7 +469,7 @@ class AutomationGUI(tk.Tk):
         self.progress_var.set(f"{self.done_count}/{self.total_count}")
         self.status_var.set("Stopping")
 
-    def _worker(self):
+    def _worker(self, thread_id, max_threads):
         while True:
             try:
                 task = self.task_queue.get(timeout=0.5)
@@ -485,9 +494,9 @@ class AutomationGUI(tk.Tk):
 
             account = Account(
                 uid=values[0],
-                mail_login=values[5],
-                ig_user=values[2],
-                mail_pass=values[6],
+                mail_login=values[3],
+                ig_user=values[0],
+                mail_pass=values[4],
             )
 
             ok = False
@@ -495,7 +504,7 @@ class AutomationGUI(tk.Tk):
             err = ""
             try:
                 result = process_account(
-                    account, headless=self.headless_var.get(), status_cb=status_cb
+                    account, headless=self.headless_var.get(), status_cb=status_cb, thread_id=thread_id, max_threads=max_threads
                 )
                 ok = result == "success"
                 if result and result != "success":
@@ -520,7 +529,7 @@ class AutomationGUI(tk.Tk):
                         user_value = status.split("=", 1)[1].strip()
                         values = list(self.tree.item(item_id, "values"))
                         if user_value:
-                            values[2] = user_value
+                            values[0] = user_value
                         self.tree.item(item_id, values=values)
                     else:
                         values = list(self.tree.item(item_id, "values"))
@@ -531,9 +540,9 @@ class AutomationGUI(tk.Tk):
                     _, item_id, ok, err = msg
                     values = list(self.tree.item(item_id, "values"))
                     if ok:
-                        pass_mail = values[6].strip() if len(values) > 6 else ""
-                        if pass_mail and len(values) > 3 and not values[3].strip():
-                            values[3] = pass_mail
+                        pass_mail = values[4].strip() if len(values) > 4 else ""
+                        if pass_mail:
+                            values[1] = pass_mail
                         values[-1] = "Success"
                         self.success_count += 1
                     else:

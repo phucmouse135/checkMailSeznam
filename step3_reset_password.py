@@ -269,18 +269,12 @@ def _fill_confirm_password(driver, pass_input, new_password):
 
 # --- MAIN STEP 3 FUNCTION ---
 
-def execute_step3(driver, row_data_line):
+def execute_step3(driver, reset_link, new_password):
     print("--- [STEP 3] ENTER NEW PASSWORD ---")
 
     # 1. Parse Data
-    try:
-        parts = row_data_line.split("\t")
-        if len(parts) < 2: parts = row_data_line.split()
-        new_password = parts[6].strip()
-        print(f"   -> New password: {new_password}")
-    except:
-        print("? Input error: missing password column.")
-        return False
+    print(f"   -> Reset link: {reset_link[:100]}...")
+    print(f"   -> New password: {new_password}")
 
     if not new_password:
         print("? Error: password is empty.")
