@@ -497,7 +497,7 @@ class AutomationGUI(tk.Tk):
             ok = False
             result = None
             err = ""
-            for attempt in range(3):
+            for attempt in range(1):  # Thử tối đa 2 lần
                 print(f"{values[0]} : Attempt {attempt+1} starting")
                 try:
                     result = mail_handler.verify_account_live(values[0], values[1])
@@ -513,8 +513,8 @@ class AutomationGUI(tk.Tk):
                     break
             else:
                 result = "fail"
-                err = "Fail after 3 retries"
-                print(f"{values[0]} : Failed after 3 attempts")
+                err = "Fail after 2 retries"
+                print(f"{values[0]} : Failed after 2 attempts")
 
             if ok:
                 values[2] = result  # ghi found_data vào FOUND_DATA
