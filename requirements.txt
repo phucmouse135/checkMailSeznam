@@ -1,0 +1,5 @@
+selenium
+setuptools
+fake_useragent
+webdriver-manager
+requests
