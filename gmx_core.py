@@ -92,6 +92,7 @@ def get_driver(headless=False, proxy_port=None, thread_id=0, max_threads=6):
     Initialize browser with Standard Selenium + Grid Layout Positioning.
     """
     options = Options()
+    options.add_argument("--user-data-dir=C:/Temp/ChromeProfile")  # Đảm bảo thư mục này tồn tại và có quyền ghi
     
     # --- Proxy ---
     if proxy_port:
