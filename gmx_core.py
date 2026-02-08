@@ -3,6 +3,7 @@ import os
 import tempfile
 import threading
 import subprocess  
+import shutil
 from selenium import webdriver 
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -92,7 +93,6 @@ def get_driver(headless=False, proxy_port=None, thread_id=0, max_threads=6):
     Initialize browser with Standard Selenium + Grid Layout Positioning.
     """
     options = Options()
-    options.add_argument("--user-data-dir=C:/Temp/ChromeProfile")  # Đảm bảo thư mục này tồn tại và có quyền ghi
     
     # --- Proxy ---
     if proxy_port:
@@ -159,6 +159,9 @@ def get_driver(headless=False, proxy_port=None, thread_id=0, max_threads=6):
         service = Service(driver_path)
         driver = webdriver.Chrome(service=service, options=options)
         
+        # Store profile_dir for cleanup
+        setattr(driver, '_profile_dir', profile_dir)
+        
         driver.set_page_load_timeout(60)
         driver.set_script_timeout(60)
 
@@ -172,27 +175,35 @@ def get_driver(headless=False, proxy_port=None, thread_id=0, max_threads=6):
         })
         
         # --- MONKEY PATCH DRIVER.QUIT ---
-        # Để tự động trả lại slot vị trí khi driver tắt
-        if not headless:
-            original_quit = driver.quit
-            def quit_wrapper():
-                try:
+        # Để tự động trả lại slot vị trí và dọn dẹp profile khi driver tắt
+        original_quit = driver.quit
+        def quit_wrapper():
+            try:
+                if not headless:
                     _WIN_MANAGER.release(slot_idx)
-                except: pass
-                return original_quit()
-            driver.quit = quit_wrapper
+            except Exception:
+                pass
+            try:
+                profile_dir = getattr(driver, '_profile_dir', None)
+                if profile_dir and os.path.exists(profile_dir):
+                    shutil.rmtree(profile_dir, ignore_errors=True)
+            except Exception:
+                pass
+            return original_quit()
+        driver.quit = quit_wrapper
         
         return driver
     except Exception as e:
         # Nếu lỗi khởi tạo, nhớ trả lại slot
         if not headless:
-            try: _WIN_MANAGER.release(slot_idx)
-            except: pass
+            try:
+                _WIN_MANAGER.release(slot_idx)
+            except Exception:
+                pass
         print(f"[CORE] Lỗi khởi tạo Driver: {e}")
         raise e
 
 # --- CÁC HÀM LOGIC NGHIỆP VỤ (GIỮ NGUYÊN) ---
-
 def find_element_safe(driver, by, value, timeout=TIMEOUT_MAX, click=False, send_keys=None):
     end_time = time.time() + timeout
     while time.time() < end_time:
@@ -264,7 +275,8 @@ def wait_element(driver, by, value, timeout=10, visible=True):
 
 def wait_and_click(driver, by, value, timeout=10):
     el = wait_element(driver, by, value, timeout=timeout, visible=True)
-    if not el: return False
+    if not el:
+        return False
     try:
         el.click()
         return True
@@ -272,5 +284,5 @@ def wait_and_click(driver, by, value, timeout=10):
         try:
             driver.execute_script("arguments[0].click();", el)
             return True
-        except:
+        except Exception:
             return False
