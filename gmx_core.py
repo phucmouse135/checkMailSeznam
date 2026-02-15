@@ -8,7 +8,8 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from webdriver_manager.chrome import ChromeDriverManager 
+# from webdriver_manager.chrome import ChromeDriverManager 
+
 
 # --- CẤU HÌNH ---
 TIMEOUT_MAX = 15 
@@ -55,17 +56,29 @@ _WIN_MANAGER = WindowPositionManager(max_slots=GRID_COLS * GRID_ROWS)
 
 # --- CÁC HÀM HỖ TRỢ DỌN DẸP ---
 def kill_orphaned_chrome():
-    """Dọn dẹp các process Chrome bị treo."""
+    """Dọn dẹp các process chromedriver bị treo (và chrome con của nó)."""
     try:
         if os.name == 'nt': # Windows
+            # /T terminates child processes (the automated chrome instances)
             subprocess.run("taskkill /f /im chromedriver.exe /T", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else: # Linux/Mac
             os.system("pkill -f chromedriver")
     except Exception:
         pass
 
+def is_driver_alive(driver):
+    """Check if WebDriver connection is still alive."""
+    if not driver:
+        return False
+    try:
+        # Try to get current URL - this is a lightweight operation
+        driver.current_url
+        return True
+    except Exception:
+        return False
+
 def _install_driver_once():
-    """Use existing chromedriver.exe instead of downloading."""
+    """Use existing chromedriver.exe exclusively."""
     global _CACHED_DRIVER_PATH
     if _CACHED_DRIVER_PATH:
         return _CACHED_DRIVER_PATH
@@ -77,13 +90,11 @@ def _install_driver_once():
                 driver_path = os.path.join(os.getcwd(), "chromedriver.exe")
                 if os.path.exists(driver_path):
                     _CACHED_DRIVER_PATH = driver_path
-                    print(f"[CORE] Using existing driver at: {_CACHED_DRIVER_PATH}")
+                    print(f"[CORE] Using local driver at: {_CACHED_DRIVER_PATH}")
                 else:
-                    # Fallback to ChromeDriverManager if not found
-                    _CACHED_DRIVER_PATH = ChromeDriverManager().install()
-                    print(f"[CORE] Driver installed at: {_CACHED_DRIVER_PATH}")
+                    raise FileNotFoundError("chromedriver.exe not found in current directory. Please download it and place it next to the script.")
             except Exception as e:
-                print(f"[CORE] Lỗi install driver: {e}")
+                print(f"[CORE] Driver initialization failed: {e}")
                 raise e
     return _CACHED_DRIVER_PATH
 
@@ -129,6 +140,9 @@ def get_driver(headless=False, proxy_port=None, thread_id=0, max_threads=6):
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--disable-background-timer-throttling")
+    options.add_argument("--disable-renderer-backgrounding")
+    options.add_argument("--disable-backgrounding-occluded-windows")
     
     # Tắt load ảnh để chạy nhanh
     options.add_argument("--blink-settings=imagesEnabled=false") 
@@ -155,15 +169,20 @@ def get_driver(headless=False, proxy_port=None, thread_id=0, max_threads=6):
     options.add_experimental_option("prefs", prefs)
     
     try:
+        # Kill any orphaned Chrome processes before starting? NO! This kills other threads' drivers!
+        # kill_orphaned_chrome() 
+        
         driver_path = _install_driver_once()
-        service = Service(driver_path)
+        # Add verbose logging to help debug if needed, but suppressed for normal use
+        service = Service(driver_path, log_output=subprocess.DEVNULL) 
         driver = webdriver.Chrome(service=service, options=options)
         
         # Store profile_dir for cleanup
         setattr(driver, '_profile_dir', profile_dir)
         
-        driver.set_page_load_timeout(60)
-        driver.set_script_timeout(60)
+        # Increase timeouts for stability
+        driver.set_page_load_timeout(120)  # Increased from 60
+        driver.set_script_timeout(120)     # Increased from 60
 
         # Bypass navigator.webdriver
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {

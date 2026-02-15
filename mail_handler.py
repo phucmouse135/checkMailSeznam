@@ -100,6 +100,7 @@ def _extract_reset_link_from_html(raw_html):
 def verify_account_live(email_login, password):
     """
     Seznam Logic: Connect -> Loop 30s -> Filter FROM -> Filter SUBJECT -> Fetch BODY PEEK -> Extract
+    Modified: Check 3 latest mails and mark as read after successful processing
     """
     mail = None
     max_retries = 3
@@ -140,9 +141,9 @@ def verify_account_live(email_login, password):
                     time.sleep(2)
                     continue
 
-                # Lấy 5 mail mới nhất
+                # Lấy 3 mail gần nhất để tránh mail rác
                 mail_ids = messages[0].split()
-                recent_ids = mail_ids[-5:] 
+                recent_ids = mail_ids[-3:] 
                 
                 for mid in reversed(recent_ids):
                     try:
@@ -181,7 +182,14 @@ def verify_account_live(email_login, password):
                         link_extracted = _extract_reset_link_from_html(body_content)
                         
                         if user_extracted or uid_extracted or link_extracted:
+                            print(f"Found matching mail - User: {user_extracted}, UID: {uid_extracted}")
                             found_data = f"success|USER={user_extracted}|UID={uid_extracted}|LINK={link_extracted}"
+                            # Đánh dấu mail đã đọc để tránh xử lý lại
+                            try:
+                                mail.store(mid, '+FLAGS', '\\Seen')
+                                print(f"Marked mail {mid} as read")
+                            except Exception as mark_error:
+                                print(f"Warning: Could not mark mail as read: {mark_error}")
                             break # Break vòng for loop mail ID
                     
                     except Exception:

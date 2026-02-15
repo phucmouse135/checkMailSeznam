@@ -2,6 +2,11 @@ import time
 from urllib.parse import parse_qs, unquote, urlparse
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+from gmx_core import is_driver_alive
+
+class DriverConnectionError(Exception):
+    """Raised when WebDriver connection is lost"""
+    pass
 
 # --- CONFIG ---
 PASSWORD_XPATH = (
@@ -38,10 +43,23 @@ class ResetLinkExpiredError(RuntimeError):
 # --- UTILS ---
 
 def _find_element_in_frames(driver, by, value, depth=0, max_depth=3):
-    try: return driver.find_element(by, value)
-    except: pass
+    try: 
+        if not is_driver_alive(driver):
+            return None
+        return driver.find_element(by, value)
+    except DriverConnectionError:
+        raise
+    except Exception as e: 
+        if "max retries exceeded" in str(e).lower() or "connection" in str(e).lower():
+            raise DriverConnectionError(f"Connection lost in find_element: {e}")
+        pass
+    
     if depth >= max_depth: return None
-    frames = driver.find_elements(By.TAG_NAME, "iframe")
+    try:
+        frames = driver.find_elements(By.TAG_NAME, "iframe")
+    except Exception:
+        return None
+        
     for frame in frames:
         try:
             driver.switch_to.frame(frame)
@@ -54,12 +72,23 @@ def _find_element_in_frames(driver, by, value, depth=0, max_depth=3):
     return None
 
 def _find_elements_in_frames(driver, by, value, depth=0, max_depth=3):
+    if not is_driver_alive(driver):
+        return []
     try:
         elements = driver.find_elements(by, value)
         if elements: return elements
-    except: pass
+    except DriverConnectionError:
+        raise
+    except Exception as e:
+        if "max retries exceeded" in str(e).lower() or "connection" in str(e).lower():
+            raise DriverConnectionError(f"Connection lost in find_elements: {e}")
+        pass
     if depth >= max_depth: return []
-    frames = driver.find_elements(By.TAG_NAME, "iframe")
+    try:
+        frames = driver.find_elements(By.TAG_NAME, "iframe")
+    except:
+        return []
+
     for frame in frames:
         try:
             driver.switch_to.frame(frame)
@@ -72,6 +101,9 @@ def _find_elements_in_frames(driver, by, value, depth=0, max_depth=3):
     return []
 
 def wait_element_any_frame(driver, by, value, timeout=10):
+    if not is_driver_alive(driver):
+        return None
+        
     end_time = time.time() + timeout
     while time.time() < end_time:
         try: driver.switch_to.default_content()
@@ -97,6 +129,9 @@ def _wait_for_url(driver, timeout=10):
 def _check_if_page_broken(driver):
     """Kiểm tra xem trang có bị lỗi 'Something went wrong' hay không"""
     try:
+        if not is_driver_alive(driver):
+            return True  # Consider page broken if driver is dead
+            
         # Check title và body text hiển thị (innerText) thay vì page_source để tránh code ẩn
         try:
             body_text = driver.find_element(By.TAG_NAME, "body").text.lower()
@@ -239,21 +274,25 @@ def _submit_password_form(driver, pass_input):
         try:
             submit_btn.click()
             return True
-        except:
+        except DriverConnectionError: raise
+        except Exception:
             try:
                 driver.execute_script("arguments[0].click();", submit_btn)
                 return True
+            except DriverConnectionError: raise
             except: pass
     # 2. Enter key
     try:
         pass_input.send_keys(Keys.ENTER)
         return True
+    except DriverConnectionError: raise
     except: pass
     # 3. Form submit
     if form:
         try:
             driver.execute_script("arguments[0].submit();", form)
             return True
+        except DriverConnectionError: raise
         except: pass
     return False
 
@@ -272,6 +311,11 @@ def _fill_confirm_password(driver, pass_input, new_password):
 def execute_step3(driver, reset_link, new_password):
     print("--- [STEP 3] ENTER NEW PASSWORD ---")
 
+    # Check driver connection first
+    if not is_driver_alive(driver):
+        print("? Driver connection lost at start of step 3")
+        raise DriverConnectionError("Driver connection lost at start of step 3")
+
     # 1. Parse Data
     print(f"   -> Reset link: {reset_link[:100]}...")
     print(f"   -> New password: {new_password}")
@@ -281,6 +325,10 @@ def execute_step3(driver, reset_link, new_password):
         return False
 
     # 2. Switch to Reset Tab
+    if not is_driver_alive(driver):
+        print("? Driver connection lost before switching tabs")
+        raise DriverConnectionError("Driver connection lost before switching tabs")
+        
     handles = driver.window_handles
     original_window = handles[0]
     
@@ -301,6 +349,10 @@ def execute_step3(driver, reset_link, new_password):
     driver.switch_to.window(reset_handle)
     
     # 3. Handle GMX Redirect & Check Input First
+    if not is_driver_alive(driver):
+        print("? Driver connection lost before navigation")
+        raise DriverConnectionError("Driver connection lost before navigation")
+        
     final_url = _navigate_if_deref(driver, timeout=10)
     
     pass_input = None
@@ -308,6 +360,10 @@ def execute_step3(driver, reset_link, new_password):
     # === LOGIC MỚI: ƯU TIÊN TÌM INPUT - NẾU CÓ THÌ BỎ QUA CHECK LỖI ===
     max_retries = 3
     for attempt in range(max_retries):
+        
+        if not is_driver_alive(driver):
+            print("? Driver connection lost during input search")
+            raise DriverConnectionError("Driver connection lost during input search")
         
         # [QUAN TRỌNG] Kiểm tra Input Password TRƯỚC
         # Nếu tìm thấy input -> Page OK -> Thoát vòng lặp ngay
@@ -347,6 +403,10 @@ def execute_step3(driver, reset_link, new_password):
         return False
 
     # 5. Fill & Submit
+    if not is_driver_alive(driver):
+        print("? Driver connection lost before form submission")
+        raise DriverConnectionError("Driver connection lost before form submission")
+        
     try:
         print("   -> Filling password...")
         _fill_password(driver, pass_input, new_password)

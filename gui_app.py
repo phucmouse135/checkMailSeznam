@@ -5,6 +5,7 @@ from tkinter import filedialog, messagebox, ttk
 import os
 
 from main import Account, process_account
+from gmx_core import kill_orphaned_chrome
 
 
 COLUMNS = [
@@ -43,8 +44,19 @@ class AutomationGUI(tk.Tk):
         self.done_count = 0
         self.success_count = 0
 
+        self.protocol("WM_DELETE_WINDOW", self._on_closing)
+
         self._build_ui()
         self.after(200, self._process_updates)
+    
+    def _on_closing(self):
+        if messagebox.askokcancel("Quit", "Do you want to quit?"):
+            self._shutdown_workers()
+            try:
+                kill_orphaned_chrome()
+            except Exception:
+                pass
+            self.destroy()
         
     def _save_live_result(self, values, status, message):
         """Ghi kết quả ngay lập tức vào file success.txt hoặc fail.txt"""
@@ -334,7 +346,7 @@ class AutomationGUI(tk.Tk):
             tag = self._get_note_tag(note)
             tags = (tag,) if tag else ()
             self.tree.insert("", tk.END, values=values, tags=tags)
-        self._reset_stats()
+        self._update_stats_from_data()
 
     def _append_rows(self, rows):
         expected_cols = len(COLUMNS)
@@ -351,18 +363,19 @@ class AutomationGUI(tk.Tk):
             tag = self._get_note_tag(note)
             tags = (tag,) if tag else ()
             self.tree.insert("", tk.END, values=values, tags=tags)
-        if not self.running:
-            self._reset_stats()
+        
+        # Always update stats after appending rows
+        self._update_stats_from_data()
 
     def delete_selected(self):
         for item in self.tree.selection():
             self.tree.delete(item)
-        self._reset_stats()
+        self._update_stats_from_data()
 
     def delete_all(self):
         for item in self.tree.get_children():
             self.tree.delete(item)
-        self._reset_stats()
+        self._update_stats_from_data()
 
     def _reset_stats(self):
         self.total_count = 0
@@ -370,6 +383,41 @@ class AutomationGUI(tk.Tk):
         self.success_count = 0
         self.progress_var.set("0/0")
         self.success_var.set("0")
+
+    def _update_stats_from_data(self):
+        """Cập nhật stats từ data hiện có trong tree"""
+        self.total_count = len(self.tree.get_children())
+        self.done_count = 0
+        self.success_count = 0
+        
+        for item in self.tree.get_children():
+            values = list(self.tree.item(item, "values"))
+            if values:
+                # Check status in NOTE column or any column containing 'success'
+                note = values[-1]
+                is_success = False
+                
+                # Check NOTE column first
+                if self._is_success_note(note):
+                    is_success = True
+                else:
+                    # Fallback: check other columns if NOTE is empty or not clear
+                    # This helps when importing different file formats
+                    for val in values:
+                        if isinstance(val, str) and val.strip().lower() == "success":
+                            is_success = True
+                            break
+                            
+                if is_success:
+                    self.success_count += 1
+                    self.done_count += 1
+                elif note:
+                    clean_note = note.strip().lower()
+                    if clean_note not in ["pending", "", "running"]:
+                        self.done_count += 1
+        
+        self.progress_var.set(f"{self.done_count}/{self.total_count}")
+        self.success_var.set(str(self.success_count))
 
     def _is_success_note(self, note):
         if not isinstance(note, str):
