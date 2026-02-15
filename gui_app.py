@@ -452,30 +452,49 @@ class AutomationGUI(tk.Tk):
         self._shutdown_workers()
         items = self.tree.get_children()
         tasks = []
+        
+        # Calculate initial stats for this run based on what's already in the tree
+        initial_success = 0
+        initial_done = 0
+        
         for item in items:
             values = list(self.tree.item(item, "values"))
             note = values[-1]
+            
+            # Check if this row is already a success
             if self._is_success_note(note):
+                initial_success += 1
+                initial_done += 1
                 continue
+                
             has_login = len(values) >= 4 and values[3]
             has_pass = len(values) >= 5 and values[4]
             if not has_login or not has_pass:
                 values[-1] = "Error: missing mail login/pass"
                 self.tree.item(item, values=values)
                 self._apply_note_tag(item, values[-1])
+                # Errors are considered "done" but not success
+                initial_done += 1 
                 continue
+                
             values[-1] = "Pending"
             self.tree.item(item, values=values)
             self._apply_note_tag(item, values[-1])
             tasks.append((item, values))
 
         if not tasks:
-            messagebox.showinfo("Run", "No valid rows to process.")
+            messagebox.showinfo("Run", "No pending tasks to process.")
             return
 
-        self.total_count = len(tasks)
-        self.done_count = 0
-        self.success_count = 0
+        # Total count should match the total number of lines in the list (tasks + what's already done)
+        # OR just the tasks for this run? 
+        # Requirement: "update success count after import... or at least after clicking start"
+        # It's better to show progress relative to the whole list.
+        
+        self.total_count = len(items)
+        self.done_count = initial_done
+        self.success_count = initial_success
+        
         self.progress_var.set(f"{self.done_count}/{self.total_count}")
         self.success_var.set(str(self.success_count))
 
