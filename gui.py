@@ -44,11 +44,11 @@ class AutomationGUI(tk.Tk):
     def _save_live_result(self, values, status, message):
         """Ghi kết quả ngay lập tức vào file success.txt hoặc fail.txt"""
         try:
-            # Tạo nội dung dòng log: MAIL | PASS | STATUS | MSG
-            mail = values[0]
-            password = values[1]
+            # Tạo nội dung dòng log: Ghi toàn bộ các cột + status + message
+            # Chuyển đổi values sang string (nếu chưa phải string) và join lại bằng tab
+            row_content = "\t".join(str(v) for v in values)
             
-            line_content = f"{mail}\t{password}\t{status}\t{message}"
+            line_content = f"{row_content}\t{status}\t{message}"
             
             # Xác định file để ghi dựa trên status
             is_success = status == "success"

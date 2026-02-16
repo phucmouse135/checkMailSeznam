@@ -468,10 +468,13 @@ def main():
             
             # Ghi vào file tương ứng
             result_file = "success.txt" if success else "fail.txt"
-            with open(result_file, "a", encoding="utf-8") as f:
-                f.write(f"{uid}\t{email}\t{ig_user}\t{status}\t{msg}\n")
             
-            append_log(OUTPUT_FILE, f"{uid}\t{email}\t{ig_user}\t{status}\t{msg}")
+            # Ghi toàn bộ dòng gốc + status + msg
+            clean_line = line.strip()
+            with open(result_file, "a", encoding="utf-8") as f:
+                f.write(f"{clean_line}\t{status}\t{msg}\n")
+            
+            append_log(OUTPUT_FILE, f"{clean_line}\t{status}\t{msg}")
         except DriverConnectionError as e:
             print(f"? Driver connection lost during processing: {e}")
             processed_count += 1
