@@ -16,6 +16,9 @@ TIMEOUT_MAX = 15
 SLEEP_INTERVAL = 1 
 PROXY_HOST = "127.0.0.1"
 
+# Folder chung chứa tất cả các profile tmp của Chrome
+TMP_PROFILES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tmp_profiles")
+
 # --- WINDOW MANAGER CONFIG ---
 # Cấu hình lưới hiển thị (Cho màn hình 1920x1080)
 GRID_COLS = 6        # 6 cột cho horizontal split
@@ -55,6 +58,14 @@ class WindowPositionManager:
 _WIN_MANAGER = WindowPositionManager(max_slots=GRID_COLS * GRID_ROWS)
 
 # --- CÁC HÀM HỖ TRỢ DỌN DẸP ---
+def ensure_tmp_dir():
+    """Tạo folder tmp_profiles nếu chưa có."""
+    try:
+        if not os.path.exists(TMP_PROFILES_DIR):
+            os.makedirs(TMP_PROFILES_DIR)
+    except Exception as e:
+        print(f"[CLEANUP] Lỗi tạo tmp folder: {e}")
+
 def kill_orphaned_chrome():
     """Dọn dẹp các process chromedriver bị treo (và chrome con của nó)."""
     try:
@@ -158,7 +169,9 @@ def get_driver(headless=False, proxy_port=None, thread_id=0, max_threads=6):
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
 
-    profile_dir = tempfile.mkdtemp()
+    # Tạo profile trong folder tmp_profiles của dự án (không phải system temp)
+    ensure_tmp_dir()
+    profile_dir = tempfile.mkdtemp(dir=TMP_PROFILES_DIR)
     options.add_argument(f"--user-data-dir={profile_dir}")
     
     prefs = {
@@ -197,18 +210,44 @@ def get_driver(headless=False, proxy_port=None, thread_id=0, max_threads=6):
         # Để tự động trả lại slot vị trí và dọn dẹp profile khi driver tắt
         original_quit = driver.quit
         def quit_wrapper():
+            result = None
             try:
+                # BƯỚC 1: Quit driver trước để đóng Chrome process
+                result = original_quit()
+            except Exception:
+                pass
+            
+            try:
+                # BƯỚC 2: Trả lại window slot
                 if not headless:
                     _WIN_MANAGER.release(slot_idx)
             except Exception:
                 pass
+            
+            # BƯỚC 3: Xóa folder tmp NGAY sau khi Chrome đã tắt
             try:
                 profile_dir = getattr(driver, '_profile_dir', None)
-                if profile_dir and os.path.exists(profile_dir):
-                    shutil.rmtree(profile_dir, ignore_errors=True)
+                if profile_dir:
+                    # Thử xóa nhiều lần (tối đa 5 giây) để chờ OS nhả lock
+                    end_time = time.time() + 5
+                    while time.time() < end_time:
+                        try:
+                            if os.path.exists(profile_dir):
+                                shutil.rmtree(profile_dir)
+                                print(f"[CLEANUP] Đã xóa profile: {os.path.basename(profile_dir)}")
+                            break
+                        except Exception:
+                            time.sleep(0.2)
+                    # Lần cuối cùng với ignore_errors nếu vẫn chưa xóa được
+                    try:
+                        if os.path.exists(profile_dir):
+                            shutil.rmtree(profile_dir, ignore_errors=True)
+                    except Exception:
+                        pass
             except Exception:
                 pass
-            return original_quit()
+            
+            return result
         driver.quit = quit_wrapper
         
         return driver
